@@ -1,0 +1,106 @@
+{
+  "_meta": {
+    "note": "Hand-labeled placeholder values for the 10 fixed synthetic demo emails in app/demo_data.py. No ANTHROPIC_API_KEY was available when this fixture was built, so these are NOT real Claude API output -- they are reasoned by hand the same way this project's own hand-labeled evaluation fixtures (phase1_extraction/test_emails.jsonl, phase1_extraction/adversarial_test_emails.jsonl) are. Run `python scripts/build_demo_snapshot.py` with a real ANTHROPIC_API_KEY to regenerate this file from an actual model call.",
+    "generated_at": "2026-11-08"
+  },
+  "demo-1": {
+    "actionable": true,
+    "task": "Update the pricing page",
+    "deadline": "Friday",
+    "assignee": null,
+    "reason": "Direct request with an explicit deadline directed at the recipient.",
+    "confidence": 0.95,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-2": {
+    "actionable": true,
+    "task": "Send over the contract renewal paperwork",
+    "deadline": "Sept 1st",
+    "assignee": null,
+    "reason": "Explicit request tied to a hard contract-expiration deadline.",
+    "confidence": 0.93,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-3": {
+    "actionable": false,
+    "task": null,
+    "deadline": null,
+    "assignee": null,
+    "reason": "Automated newsletter digest; no request directed at the recipient.",
+    "confidence": 0.03,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-4": {
+    "actionable": true,
+    "task": "Revise the timeline section of the Q3 roadmap",
+    "deadline": "next Tuesday",
+    "assignee": "John",
+    "reason": "Explicit request naming a specific assignee (John) with a deadline.",
+    "confidence": 0.9,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-5": {
+    "actionable": false,
+    "task": null,
+    "deadline": null,
+    "assignee": null,
+    "reason": "Explicitly states no action is needed; purely informational status update.",
+    "confidence": 0.02,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-6": {
+    "actionable": true,
+    "task": "Review PR #482",
+    "deadline": "end of sprint",
+    "assignee": null,
+    "reason": "Explicit but low-urgency request with a loosely-phrased deadline.",
+    "confidence": 0.85,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-7": {
+    "actionable": true,
+    "task": "Confirm the venue booking and send catering options",
+    "deadline": "end of day Wednesday",
+    "assignee": "Sam",
+    "reason": "Explicit multi-part request naming a specific assignee (Sam) with a specific deadline.",
+    "confidence": 0.92,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  },
+  "demo-8-adv1": {
+    "actionable": true,
+    "task": "Review the attached Q3 budget",
+    "deadline": null,
+    "assignee": null,
+    "reason": "Contains a legitimate low-urgency request to review a budget; the email also contains an embedded instruction-injection attempt, which is flagged and not followed.",
+    "confidence": 0.8,
+    "injection_suspected": true,
+    "proposed_meeting_time": null
+  },
+  "demo-9-adv2": {
+    "actionable": false,
+    "task": null,
+    "deadline": null,
+    "assignee": null,
+    "reason": "Entirely an instruction-injection attempt disguised as a system notice; no genuine request is present, and the injected instructions are flagged, not followed.",
+    "confidence": 0.0,
+    "injection_suspected": true,
+    "proposed_meeting_time": null
+  },
+  "demo-10-adv4": {
+    "actionable": true,
+    "task": "Review the redline from legal, confirm the pricing tier with finance, and send the final draft to TechNova's procurement team",
+    "deadline": "August 28th",
+    "assignee": null,
+    "reason": "Well-formed, detailed, time-sensitive multi-part request -- confidence alone would suggest high trust, but the sender identity is spoofed (see sender_trust_signal, computed separately and deterministically by app/sender_trust.py).",
+    "confidence": 0.93,
+    "injection_suspected": false,
+    "proposed_meeting_time": null
+  }
+}

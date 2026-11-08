@@ -79,6 +79,7 @@ from app.config import DEMO_MODE, THREAD_CONTEXT_DEPTH
 from app.correction_notes import get_active_notes
 from app.db import get_session
 from app.deadline_resolver import resolve_deadline_phrase
+from app.demo_snapshot import get_demo_snapshot_result
 from app.events import event_bus
 from app.meeting_time_resolver import resolve_meeting_time_phrase
 from app.models import Email, EmailAccount, TaskCandidate, User
@@ -178,7 +179,10 @@ async def run_extract(session: Session, max_emails: int = 20) -> dict:
 
     active_notes = get_active_notes(session)  # read-time-only, capped at 5 (V2.5 Decision 5)
 
-    extractor = Extractor()
+    # DEMO_MODE: never construct a real Anthropic client — Extractor()'s
+    # __init__ would do so even if .extract() were never called. The public
+    # demo must make zero live Claude calls and needs no API key at all.
+    extractor = None if DEMO_MODE else Extractor()
     candidates_created = 0
     not_actionable = 0
     triaged_out = 0
@@ -203,7 +207,13 @@ async def run_extract(session: Session, max_emails: int = 20) -> dict:
         }
 
         try:
-            result = extractor.extract(email_data, thread_context, correction_notes=active_notes)
+            if DEMO_MODE:
+                # Replay the hand-labeled snapshot instead of calling Claude
+                # (app/demo_snapshot.py) — thread_context/correction_notes
+                # are irrelevant here since the result is fixed per email.
+                result = get_demo_snapshot_result(email.message_id)
+            else:
+                result = extractor.extract(email_data, thread_context, correction_notes=active_notes)
         except ExtractionError as e:
             print(f"[extract] email {email.id} ({email.subject!r}) failed: {e}")
             failed += 1
