@@ -1,10 +1,12 @@
+<!-- LIVE DEMO: https://inbox-to-action-demo-web.onrender.com -->
+
 # Inbox-to-Action
 
-[![CI](https://github.com/FarhanUllah382/Injection-Resistant-Autonomous-Task-Agent-for-Gmail-and-Notion/actions/workflows/ci.yml/badge.svg)](https://github.com/FarhanUllah382/Injection-Resistant-Autonomous-Task-Agent-for-Gmail-and-Notion/actions/workflows/ci.yml)
+[![CI](https://github.com/FarhanUllah382/inbox-to-action/actions/workflows/ci.yml/badge.svg)](https://github.com/FarhanUllah382/inbox-to-action/actions/workflows/ci.yml)
 
 **Gmail → Claude → a human-approved task in Notion — built around treating inbox content as adversarial input, not just data to summarize.**
 
-🔗 **[Live demo](https://inbox-to-action-demo-web.onrender.com)** — a fixed synthetic inbox (including two prompt-injection attempts and a spoofed sender), no real Gmail/Notion/Calendar access. Free-tier Render service: if it's been idle, the first load can take ~45s to wake up.
+🔗 **[Live demo](https://inbox-to-action-demo-web.onrender.com)** — a fixed synthetic inbox (including two prompt-injection attempts and a spoofed sender), no real Gmail/Notion/Calendar access. Free tier — first load takes ~45 seconds if the service has been idle.
 
 Gmail is where work arrives. Notion is where work gets tracked. Nothing bridges them automatically — so tasks buried in email either get manually copied over or forgotten.
 
@@ -77,7 +79,7 @@ Everything runs as one FastAPI process (see `app/main.py`). The ~2-minute Gmail 
 | Backend | FastAPI, single process | The pipeline is a sequence of function calls, not a service mesh — there's no reason for it to be one yet |
 | AI | Claude API, structured JSON output | Well-designed prompt + structured output over anything fancier; no fine-tuning, no RAG |
 | Scheduling | APScheduler (in-process) | A recurring job inside the process that's already running, not a new Celery/Redis stack |
-| Database | PostgreSQL + SQLModel | Plain relational schema — six tables, no ORM magic |
+| Database | PostgreSQL + SQLModel (SQLite for the public demo) | Plain relational schema — six tables, no ORM magic |
 | Email/Calendar/Notion | MCP servers over stdio | Each integration is a small, auditable local subprocess with a minimal tool surface |
 | Frontend | Next.js (App Router) + React, no UI framework | Small enough not to need one; CSS Modules over the existing design tokens |
 | Live updates | Server-Sent Events | One-directional server→client notifications don't need a WebSocket |
@@ -90,30 +92,14 @@ Two fields on `task_candidates` are easy to conflate and deliberately aren't: `d
 
 ## Running it locally
 
-**Prerequisites:** Python 3.11+, Node 18+, Docker (for Postgres), a Claude API key, Google OAuth credentials, and a Notion integration token + database ID.
+Fastest path — demo mode, no external services or API keys at all:
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-cd web && npm install && cd ..
-
-# 2. Configure environment
-cp .env.example .env                          # fill in ANTHROPIC_API_KEY, APP_ACCESS_TOKEN, GOOGLE_CLIENT_ID/SECRET, NOTION_*, USER_TIMEZONE
-cp web/.env.local.example web/.env.local       # default (http://localhost:8000) is fine unless the backend runs elsewhere
-
-# 3. Start Postgres
-docker compose up -d
-
-# 4. Start the backend (also starts the ~2-minute auto-poll scheduler)
-uvicorn app.main:app --reload
-
-# 5. Start the review UI (separate terminal)
-cd web && npm run dev
+DEMO_MODE=true DATABASE_URL=sqlite:///./demo.db uvicorn app.main:app --reload
 ```
 
-Every route except `/health` and the Google OAuth callback requires the `APP_ACCESS_TOKEN` you set in step 2 (see "Security model" below) — the review UI will prompt for it once, in a plain login screen, and keep it in `sessionStorage` for that browser tab. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-
-Open `http://localhost:3000`, connect Gmail via the login flow, and the pipeline runs on its own from there — a "Scan Gmail now" / "Extract tasks now" pair of buttons is also available for on-demand testing without waiting for the next poll.
+That starts the backend only, seeded with the same fixed synthetic inbox the public demo uses. See [`docs/SETUP.md`](docs/SETUP.md) for the full setup (Postgres, OAuth, Notion, the review UI, and connecting a real Gmail inbox).
 
 ## Validating extraction quality
 
@@ -123,7 +109,24 @@ Before any of the surrounding infrastructure was built, extraction accuracy was 
 python phase1_extraction/run_experiment.py
 ```
 
-Current result on the 15-email hand-labeled set: **100% precision and recall** on the actionable/not-actionable classification (0 false positives, 0 false negatives). That's a small evaluation set, not a claim of production-scale accuracy — but it's a real, reproducible number, not a target. Later phases each added their own regression check against this same baseline (`phase1_extraction/run_adversarial_eval.py` for prompt-injection resistance, `run_v25_eval.py` and `run_v26_eval.py` for the correction-learning and scheduling additions) to catch a change that improves one thing while quietly breaking another.
+Historical result on the 15-email hand-labeled set: **100% precision and recall** on the actionable/not-actionable classification (0 false positives, 0 false negatives). This reflects whenever the script was last run with a real API key — it has not been reproduced as part of this change (no key available in this environment) — so treat it as context, not a freshly verified number. Later phases each added their own regression check against this same baseline (`phase1_extraction/run_adversarial_eval.py` for prompt-injection resistance, `run_v25_eval.py` and `run_v26_eval.py` for the correction-learning and scheduling additions) to catch a change that improves one thing while quietly breaking another.
+
+## Results
+
+As of 2026-11-08, no `ANTHROPIC_API_KEY` was available in the environment this change was built in, so the Claude-dependent eval scripts below were **not** re-run as part of this change. What follows is exactly what was and wasn't verified today, with no numbers invented or carried forward as if freshly checked.
+
+**Verified today (fully offline, no API key, deterministic code only):** `phase1_extraction/run_v26_eval.py`'s three non-Claude checks — `calendar_check_correctness()`, `deadline_resolution_fix_check()`, `scheduling_priority_check()` — all **PASS** (run via `python -c` against the individual functions, since the script's 4th check needs a key and would otherwise abort the run). These exercise `app/scheduling.py`'s conflict/alternative-slot logic, `app/deadline_resolver.py`'s date resolution (including the time-bearing-phrase fix), and `app/routes_extract.py`'s meeting-vs-deadline priority rule — the same logic now also covered by `tests/test_scheduling.py` (9 pytest cases, added in this change) and `tests/test_deadline_resolver.py`.
+
+**Not re-run today (require a real Claude API call):**
+| Script | Fixture | Size |
+| --- | --- | --- |
+| `phase1_extraction/run_experiment.py` | `test_emails.jsonl` | 15 emails |
+| `phase1_extraction/run_adversarial_eval.py` | `adversarial_test_emails.jsonl` | 9 cases |
+| `phase1_extraction/run_v25_eval.py` | `correction_fixture.jsonl` + the 15-email set | 4 + 15 cases |
+| `phase1_extraction/run_v25_risky_note_stresstest.py` | 4 hardcoded cases | 4 cases |
+| `phase1_extraction/run_v26_eval.py` (`scheduling_field_check` only) | `scheduling_test_emails.jsonl` | 9 cases |
+
+The "100% precision/recall" figure quoted above for `run_experiment.py` is historical — from whenever that script was last run with a real key, not reproduced today. These are small, hand-labeled sets (4–15 cases each), not a production-scale benchmark; anyone picking this up with a real `ANTHROPIC_API_KEY` can reproduce or refresh every number above by running the commands shown in each script's own docstring.
 
 ## Design process
 
@@ -148,7 +151,8 @@ Documented honestly rather than omitted:
 - **The auto-eligible policy decision is shadow-mode only.** It's computed and stored on every candidate for later evaluation; nothing in the codebase currently acts on it — every candidate still requires a human to approve/edit/dismiss it (see `AUTO_ACT_ENABLED` in `app/config.py`).
 - **The sender-trust and injection checks are evaluated against a small, hand-built adversarial set** (`phase1_extraction/adversarial_test_emails.jsonl`), not a large or continuously-updated one — they catch the specific patterns that set covers, not every possible spoofing or injection technique.
 - **Auth-failure detection in the automatic poller is a best-effort string match** against Google's refresh-error text (`app/scheduler.py`), not a typed exception — documented in that module as a known gap, not verified against a real revoked token as part of this work.
-- **The demo deployment needs its own Anthropic API key with its own spend limit.** `DEMO_MODE` skips Gmail/Notion/Calendar calls, but still runs real Claude extraction on the synthetic inbox — that's the actual point of the demo — so it isn't free to run indefinitely.
+- **The public demo no longer makes live Claude calls.** It runs on SQLite and replays a committed extraction snapshot (`app/demo_snapshot.json`, produced by `scripts/build_demo_snapshot.py`) instead. The snapshot's task/deadline/confidence values are hand-labeled, not live-model output, because no Anthropic API key was available when it was built — it can be regenerated for real by running `scripts/build_demo_snapshot.py` with a real key.
+- **The Claude-dependent eval scripts (`run_experiment.py`, `run_adversarial_eval.py`, `run_v25_eval.py`, `run_v25_risky_note_stresstest.py`, and `run_v26_eval.py`'s `scheduling_field_check`) were not re-run as part of this change** — see "Results" above for exactly what was and wasn't verified and why.
 
 ## Explicitly out of scope (for now)
 
