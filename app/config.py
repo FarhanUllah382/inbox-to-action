@@ -18,9 +18,21 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # this is set.
 DEMO_MODE = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 
+# Which LLM phase1_extraction/extractor.py calls — "anthropic" (default;
+# the private instance's behavior is unchanged unless this is explicitly
+# set) or "gemini". See phase1_extraction/config.py for why this is
+# duplicated rather than imported from there.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+
 # Anthropic API (reused from Phase 1)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = "claude-sonnet-5"
+
+# Gemini (google-genai SDK) — alternate provider, selected via LLM_PROVIDER.
+# See phase1_extraction/config.py's comment for how GEMINI_MODEL's default
+# was confirmed against the live API rather than guessed.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Extraction parameters (reused from Phase 1)
 THREAD_CONTEXT_DEPTH = 5

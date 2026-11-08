@@ -65,6 +65,15 @@ app.include_router(demo_router)
 @app.on_event("startup")
 async def on_startup() -> None:
     init_db()
+    if not DEMO_MODE:
+        # Fail closed at boot, not two minutes later inside the scheduler's
+        # first silently-logged poll failure: checks the configured
+        # LLM_PROVIDER's key is actually present (phase1_extraction/extractor.py)
+        # without constructing a real SDK client or making a network call —
+        # skipped entirely in DEMO_MODE, which needs no key of any kind.
+        from phase1_extraction.extractor import validate_provider_config
+
+        validate_provider_config()
     if DEMO_MODE:
         # Public demo instance: seed the fixed synthetic inbox and run one
         # extraction pass immediately, so a visitor sees populated
