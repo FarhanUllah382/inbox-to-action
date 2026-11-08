@@ -43,7 +43,8 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session
 
-from app.config import GMAIL_POLL_INTERVAL_SECONDS
+from app import demo_reset
+from app.config import DEMO_MODE, GMAIL_POLL_INTERVAL_SECONDS
 from app.db import engine
 from app.events import event_bus
 from app.routes_extract import run_extract
@@ -52,11 +53,17 @@ from app.routes_scan import ScanSetupError, run_scan
 logger = logging.getLogger(__name__)
 
 JOB_ID = "gmail_poll"
+DEMO_RESET_JOB_ID = "demo_reset"
 NORMAL_INTERVAL_SECONDS = GMAIL_POLL_INTERVAL_SECONDS
 # Fixed floor, deliberately NOT scaled off NORMAL_INTERVAL_SECONDS — a
 # demo-speed normal interval must never weaken the real backoff safety net.
 BACKOFF_INTERVAL_SECONDS = 600
 FAILURE_THRESHOLD = 3
+# Public demo only (see start()) — periodically wipes and re-seeds the
+# fixed demo inbox so a stream of visitors never sees a stale/approved-out
+# state. 30 minutes is generous for one visitor's session, short enough
+# that the demo doesn't stay messy for long.
+DEMO_RESET_INTERVAL_SECONDS = 1800
 
 # Best-effort substring match against Google auth library / OAuth error text
 # — see module docstring's "Known gap" note.
@@ -150,6 +157,17 @@ async def poll_once(max_results: int = 20, max_emails: int = 20) -> None:
     _handle_poll_success()
 
 
+async def _demo_reset_job() -> None:
+    """Public-demo-only periodic reset. Never raises — a failed reset is
+    logged and simply retried next interval, same "never crash the
+    scheduler" convention as poll_once above."""
+    try:
+        with Session(engine) as session:
+            await demo_reset.reset_demo(session)
+    except Exception as e:  # noqa: BLE001 — deliberately broad, see docstring
+        logger.warning("demo reset failed: %s", e)
+
+
 def start() -> None:
     global scheduler
     if scheduler is not None:
@@ -163,6 +181,14 @@ def start() -> None:
         max_instances=1,  # single-flight (Decision 2) — made explicit, not relied on silently
         coalesce=True,  # a burst of missed ticks (e.g. process was suspended) runs once, not N times
     )
+    if DEMO_MODE:
+        scheduler.add_job(
+            _demo_reset_job,
+            trigger="interval",
+            seconds=DEMO_RESET_INTERVAL_SECONDS,
+            id=DEMO_RESET_JOB_ID,
+            max_instances=1,
+        )
     scheduler.start()
     logger.info("gmail poll scheduler started (%ds interval)", NORMAL_INTERVAL_SECONDS)
 
