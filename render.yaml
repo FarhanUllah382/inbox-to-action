@@ -22,6 +22,13 @@ services:
         value: https://inbox-to-action-api.onrender.com/auth/google/callback
       - key: GMAIL_POLL_INTERVAL_SECONDS
         value: "120"
+      # Explicit rather than relying on app/config.py's default, so this
+      # service's choice of model provider is visible here, not implicit.
+      # The alternate LLM_PROVIDER=gemini path (phase1_extraction/extractor.py)
+      # exists for the demo snapshot/eval tooling — the private instance
+      # stays on Claude.
+      - key: LLM_PROVIDER
+        value: "anthropic"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: APP_ACCESS_TOKEN
@@ -66,8 +73,14 @@ services:
     # --proxy-headers so app/rate_limit.py's per-IP POST /demo/reset limiter
     # sees each visitor's real IP (from X-Forwarded-For) instead of Render's
     # proxy address for every request — without it, the limiter collapses
-    # into one shared 1/min bucket for the whole demo.
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    # into one shared 1/min bucket for the whole demo. --proxy-headers alone
+    # only trusts forwarded headers from 127.0.0.1 by default; Render's
+    # proxy isn't on localhost from the container's point of view, so
+    # --forwarded-allow-ips='*' is required too or the first flag is a
+    # no-op — safe here specifically because this service's only consumer
+    # of forwarded headers is the IP-keyed rate limiter above, not an auth
+    # decision (DEMO_MODE already makes auth a no-op on this service).
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
