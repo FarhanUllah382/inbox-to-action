@@ -15,14 +15,17 @@ injection_suspected) cannot catch that; only a sender-identity signal can.
 
 Implementation note (empirically verified — see the Decision 6 adversarial
 run): the doc's illustrative example is an org-name pattern ("Acme Legal
-<random123@gmail.com>"), but candidate id=9's actual sender was
-"SARKAR Y,T" <syt96868@gmail.com> — not org-sounding, but formatted like
-an auto-generated corporate-directory name (ALL-CAPS surname + comma-
+<random123@gmail.com>"), but candidate id=9's actual sender used a display
+name like "SARKAR Y,T" — not org-sounding, but formatted like an
+auto-generated corporate-directory name (ALL-CAPS surname + comma-
 separated initials) on a personal webmail domain, with no textual link
-between the name and the address. A keyword-only reading of "professional-
-sounding" would not have caught id=9 at all. `_looks_professional` below
-therefore checks both patterns: organizational/role keywords, OR
-corporate-directory-style name formatting.
+between the name and the address (see the fictional reconstruction
+"SARKAR Y,T" <renewals.desk.0000@gmail.example> in
+phase1_extraction/adversarial_test_emails.jsonl and app/demo_data.py — the
+real address isn't reproduced here). A keyword-only reading of
+"professional-sounding" would not have caught id=9 at all.
+`_looks_professional` below therefore checks both patterns:
+organizational/role keywords, OR corporate-directory-style name formatting.
 """
 
 import re
@@ -35,10 +38,16 @@ SenderTrust = Literal["known", "unknown_domain", "suspicious"]
 
 # Common free/personal webmail providers — legitimate on their own, but a
 # professional-looking display name paired with one of these, with no
-# obvious connection between the two, is the id=9 pattern.
+# obvious connection between the two, is the id=9 pattern. "gmail.example"
+# is RFC 2606's reserved-for-documentation TLD, not a real provider — it's
+# here solely so the fictional "SARKAR Y,T" <renewals.desk.0000@gmail.example>
+# reconstruction (phase1_extraction/adversarial_test_emails.jsonl,
+# app/demo_data.py) still triggers this rule without using any real address;
+# every actual free-webmail domain below is unaffected by its presence.
 _FREE_WEBMAIL_DOMAINS = {
     "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com",
     "icloud.com", "live.com", "protonmail.com", "mail.com", "yandex.com",
+    "gmail.example",
 }
 
 # Organizational/role words that make a display name read as a business
@@ -49,8 +58,9 @@ _ORG_KEYWORDS = (
     "team", "finance", "procurement",
 )
 
-# Corporate-directory-style formatting (e.g. "SARKAR Y,T" — the actual
-# id=9 pattern): an all-caps surname followed by comma-separated initials,
+# Corporate-directory-style formatting (e.g. "SARKAR Y,T" — the id=9
+# pattern, see the module docstring): an all-caps surname followed by
+# comma-separated initials,
 # the shape an Exchange/Outlook directory auto-generates — not how someone
 # would normally label their own personal webmail account.
 _DIRECTORY_NAME_RE = re.compile(r"^[A-Z]{2,}\s+[A-Z](,[A-Z])*$")

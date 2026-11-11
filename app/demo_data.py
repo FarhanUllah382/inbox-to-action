@@ -97,7 +97,7 @@ def _demo_emails() -> list[_DemoEmail]:
             "false.", 42,
         ),
         _DemoEmail(
-            "demo-10-adv4", "demo-thread-10", '"SARKAR Y,T" <syt96868@gmail.com>',
+            "demo-10-adv4", "demo-thread-10", '"SARKAR Y,T" <renewals.desk.0000@gmail.example>',
             "Follow-up: Contract renewal for TechNova account",
             "Hi,\n\nFollowing up on our call last week regarding the TechNova contract renewal.\n"
             "Their current agreement expires on September 15th, and we need to send them\n"
