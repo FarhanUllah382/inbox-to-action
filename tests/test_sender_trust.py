@@ -1,7 +1,9 @@
 """
 Tests for app/sender_trust.py's sender_trust_signal() (Design Decisions
-V2.4, Decision 3) — including the candidate id=9 pattern ("SARKAR Y,T"
-<syt96868@gmail.com>) that motivated it.
+V2.4, Decision 3) — including the candidate id=9 pattern (a corporate-
+directory-style display name on a personal webmail domain) that motivated
+it. The address below is a fictional reconstruction, not the real sender
+that originally exposed this gap.
 """
 
 from app import sender_trust
@@ -30,8 +32,10 @@ def test_org_keyword_display_name_on_free_webmail_is_suspicious():
 
 
 def test_directory_style_name_on_free_webmail_is_suspicious():
-    # candidate id=9's actual pattern — the reason this check exists at all.
-    email = FakeEmail('"SARKAR Y,T" <syt96868@gmail.com>')
+    # candidate id=9's pattern — the reason this check exists at all.
+    # Fictional reconstruction; gmail.example is RFC 2606's
+    # reserved-for-documentation TLD, not a real provider.
+    email = FakeEmail('"SARKAR Y,T" <renewals.desk.0000@gmail.example>')
     assert sender_trust.sender_trust_signal(email) == "suspicious"
 
 
