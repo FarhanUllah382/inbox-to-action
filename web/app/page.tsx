@@ -10,8 +10,32 @@ import CandidateList from "./components/CandidateList";
 import LoginScreen from "./components/LoginScreen";
 import ResetDemoButton from "./components/ResetDemoButton";
 import Toast, { type ToastItem } from "./components/Toast";
+import WakingUpScreen from "./components/WakingUpScreen";
 import WhatYoureLookingAt from "./components/WhatYoureLookingAt";
 import styles from "./page.module.css";
+
+// Build-time only, set in render.yaml for inbox-to-action-demo-web (never
+// for inbox-to-action-web). Decides exactly two things, both unconditional:
+// never show LoginScreen, and show the demo banner. It does NOT skip the
+// GET /api/info wake-up check below — the demo deployment is exactly where
+// a cold Render free-tier instance is most likely to be hit, so it needs
+// the same "waking up" screen as everyone else, not an early return straight
+// into a candidate list that doesn't exist yet.
+const DEMO_MODE_BUILD_FLAG = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+// How long to keep retrying GET /api/info before giving up and showing the
+// explicit "didn't respond" screen — Render's free tier can take up to
+// ~60s to wake a cold instance, so this is deliberately longer than that.
+const WAKE_RETRY_INTERVAL_MS = 3000;
+const WAKE_MAX_WAIT_MS = 90000;
+
+// The initial candidate load can land in the same cold-start window as the
+// /api/info check above (the API answering /api/info doesn't guarantee the
+// very next request won't also hit a still-warming-up backend) — retried a
+// few times before actually surfacing an error, rather than every visitor's
+// first load being a coin flip against a server that just woke up.
+const INITIAL_LOAD_RETRY_ATTEMPTS = 3;
+const INITIAL_LOAD_RETRY_INTERVAL_MS = 3000;
 
 // V2.7 (Design Decisions V2.7): Gmail is now scanned+extracted
 // automatically every ~2 minutes by app/scheduler.py — the manual
@@ -27,31 +51,76 @@ function nextToastId(): string {
 }
 
 export default function ReviewPage() {
-  // null = "not checked yet" (avoids a flash of the login screen while
-  // sessionStorage is read on mount); true/false once known.
+  // loggedIn stays null until wakePhase reaches "ready" — see the effect
+  // below. Kept separate from wakePhase (rather than folding "not checked
+  // yet" into loggedIn===null the way the old /health-based check did) so
+  // the demo build can go through the exact same wake-up wait as everyone
+  // else without it being mistaken for "needs a login".
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  const [demoMode, setDemoMode] = useState(DEMO_MODE_BUILD_FLAG);
+  const [wakePhase, setWakePhase] = useState<"waking" | "ready" | "timed_out">("waking");
+  const [wakeRetryToken, setWakeRetryToken] = useState(0);
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // /health needs no token. Drives both the "synthetic data" banner and
-  // the login gate below: DEMO_MODE's backend skips token checking
-  // entirely (app/auth.py), so the login screen would just be a pointless
-  // extra click for a public demo — skip it there too, straight to
-  // logged-in. Otherwise fall back to whatever's already in
-  // sessionStorage from a previous visit this tab.
+  // GET /api/info needs no token (app/main.py — same payload as /health,
+  // deliberately not on a "/health"-shaped path some browser ad/privacy
+  // blockers silently fail requests to). Runs unconditionally, demo build
+  // included — DEMO_MODE_BUILD_FLAG only decides what happens once this
+  // succeeds (never show LoginScreen), not whether to wait for it at all.
+  // Retries every WAKE_RETRY_INTERVAL_MS for up to WAKE_MAX_WAIT_MS — a
+  // cold Render free-tier instance can take up to ~60s to answer at all —
+  // rather than falling back to the login screen on the first failed
+  // attempt.
   useEffect(() => {
-    fetch(`${API_URL}/health`)
-      .then((res) => res.json())
-      .then((data) => {
-        const isDemo = Boolean(data.demo_mode);
-        setDemoMode(isDemo);
-        setLoggedIn(isDemo ? true : getToken() !== null);
-      })
-      .catch(() => setLoggedIn(getToken() !== null));
-  }, []);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
+
+    async function attempt() {
+      try {
+        const res = await fetch(`${API_URL}/api/info`);
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (DEMO_MODE_BUILD_FLAG) {
+          // Authoritative regardless of what the API actually reports —
+          // the build flag's whole job is "never show LoginScreen" on this
+          // deployment. Reaching the API at all is enough to proceed.
+          setLoggedIn(true);
+        } else {
+          const isDemo = Boolean(data.demo_mode);
+          setDemoMode(isDemo);
+          setLoggedIn(isDemo ? true : getToken() !== null);
+        }
+        setWakePhase("ready");
+      } catch {
+        if (cancelled) return;
+        if (Date.now() - startedAt >= WAKE_MAX_WAIT_MS) {
+          setWakePhase("timed_out");
+          return;
+        }
+        timeoutId = setTimeout(attempt, WAKE_RETRY_INTERVAL_MS);
+      }
+    }
+
+    attempt();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [wakeRetryToken]);
+
+  function retryWakeUp() {
+    // Set synchronously from the click handler, not inside the effect
+    // body — wakePhase is already "waking" on first mount (its initial
+    // state), this only needs to reset it back from "timed_out" when the
+    // Retry button bumps wakeRetryToken and re-runs the effect above.
+    setWakePhase("waking");
+    setWakeRetryToken((n) => n + 1);
+  }
 
   function handleAuthError(e: unknown): boolean {
     if (e instanceof AuthError) {
@@ -79,30 +148,48 @@ export default function ReviewPage() {
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  async function loadCandidates() {
+  // silent=true skips setError on failure — used only by the initial-load
+  // retry wrapper below, so a transient failure right after the server
+  // just woke up doesn't flash an error the next attempt is about to
+  // clear anyway. Every other call site (manual Refresh, after
+  // approve/dismiss/edit/scan/extract) keeps today's single-attempt,
+  // error-surfacing behavior.
+  async function loadCandidates(opts: { silent?: boolean } = {}): Promise<boolean> {
     setLoading(true);
-    setError(null);
+    if (!opts.silent) setError(null);
     try {
       const data = await apiCall("/candidates");
       setCandidates(data);
+      setError(null);
+      return true;
     } catch (e) {
-      if (!handleAuthError(e)) {
+      if (handleAuthError(e)) return true; // auth flow takes over; not a retry case
+      if (!opts.silent) {
         setError(e instanceof Error ? e.message : "Failed to load candidates");
       }
+      return false;
     } finally {
       setLoading(false);
     }
   }
 
+  async function loadCandidatesInitial(attemptsLeft = INITIAL_LOAD_RETRY_ATTEMPTS) {
+    const isLastAttempt = attemptsLeft <= 1;
+    const ok = await loadCandidates({ silent: !isLastAttempt });
+    if (ok || isLastAttempt) return;
+    await new Promise((resolve) => setTimeout(resolve, INITIAL_LOAD_RETRY_INTERVAL_MS));
+    await loadCandidatesInitial(attemptsLeft - 1);
+  }
+
   useEffect(() => {
     if (!loggedIn) return;
-    // loadCandidates() sets state (setLoading/setError) before its first
-    // await — calling it directly here would run that synchronously
+    // loadCandidatesInitial() sets state (setLoading/setError) before its
+    // first await — calling it directly here would run that synchronously
     // within the effect body, which react-hooks now flags. Deferring
     // through a microtask keeps this an on-mount fetch (fires before the
     // next paint) without a synchronous setState-in-effect call.
     queueMicrotask(() => {
-      loadCandidates();
+      loadCandidatesInitial();
     });
   }, [loggedIn]);
 
@@ -259,8 +346,13 @@ export default function ReviewPage() {
     enabled: editingId === null && busyId === null,
   });
 
-  if (loggedIn === null) {
-    return null; // sessionStorage check in flight — avoids a login-screen flash on reload
+  if (wakePhase !== "ready") {
+    // GET /api/info hasn't answered yet (cold instance, still retrying)
+    // or every retry within WAKE_MAX_WAIT_MS failed — see the effect
+    // above. loggedIn is guaranteed non-null once wakePhase is "ready"
+    // (both are set together in the same attempt()), so there's no
+    // separate "sessionStorage check in flight" case left to handle here.
+    return <WakingUpScreen phase={wakePhase} onRetry={retryWakeUp} />;
   }
 
   if (!loggedIn) {
@@ -306,10 +398,10 @@ export default function ReviewPage() {
         <button onClick={handleExtract} disabled={extracting}>
           {extracting ? "Extracting…" : "Extract tasks now"}
         </button>
-        <button onClick={loadCandidates} disabled={loading}>
+        <button onClick={() => loadCandidates()} disabled={loading}>
           Refresh
         </button>
-        {demoMode && <ResetDemoButton onReset={loadCandidates} />}
+        {demoMode && <ResetDemoButton onReset={async () => { await loadCandidates(); }} />}
       </div>
 
       {(scanStatus || extractStatus) && (

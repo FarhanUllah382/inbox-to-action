@@ -112,4 +112,19 @@ def on_shutdown() -> None:
 def health() -> dict:
     # demo_mode is exposed here (unauthenticated) specifically so the web
     # UI can show its "synthetic data" banner before a token is entered.
+    # Kept byte-identical for Render's healthCheckPath — see /api/info
+    # below for why the web app itself no longer calls this one.
     return {"status": "ok", "demo_mode": DEMO_MODE}
+
+
+@app.get("/api/info")
+def api_info() -> dict:
+    # Same demo_mode payload as /health, at a path that doesn't contain
+    # "health" (or "status"/"track"/"analytics"/"ads") — browser ad/privacy
+    # blockers that match request URLs against those words were silently
+    # failing the web app's fetch('/health') even same-origin, which made
+    # every visitor with such an extension (and anyone hitting a cold
+    # Render free-tier instance) fall back to the private login screen
+    # instead of the public demo. web/lib/api.ts calls this one instead;
+    # /health stays exactly as-is for Render's own health check.
+    return {"demo_mode": DEMO_MODE}

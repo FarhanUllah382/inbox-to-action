@@ -41,3 +41,7 @@ Set `DEMO_MODE=true` in `.env` and skip the Google/Notion/LLM-provider variables
 - `gemini`: `GEMINI_API_KEY`, optionally `GEMINI_MODEL` (defaults to `gemini-2.5-flash` — the current API's own "stable" Flash release; see `phase1_extraction/config.py`'s comment for how that was confirmed rather than guessed)
 
 A missing key for whichever provider is selected fails closed at startup (`app/main.py`), except in `DEMO_MODE`, which needs no key of either kind.
+
+## How the web app detects demo mode
+
+`web/app/page.tsx` calls `GET /api/info` (not `/health` — some browser ad/privacy blockers block any request whose URL contains "health", which silently broke demo detection for visitors running one). The public demo build sets `NEXT_PUBLIC_DEMO_MODE=true` at build time (`render.yaml`, `inbox-to-action-demo-web` only) to skip that call entirely; everywhere else, the app retries `/api/info` every 3s for up to 90s (to ride out a cold Render free-tier instance waking up) before showing a "didn't respond" screen with a Retry button, instead of falling back to the login screen.
