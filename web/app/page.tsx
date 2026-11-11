@@ -10,8 +10,21 @@ import CandidateList from "./components/CandidateList";
 import LoginScreen from "./components/LoginScreen";
 import ResetDemoButton from "./components/ResetDemoButton";
 import Toast, { type ToastItem } from "./components/Toast";
+import WakingUpScreen from "./components/WakingUpScreen";
 import WhatYoureLookingAt from "./components/WhatYoureLookingAt";
 import styles from "./page.module.css";
+
+// Build-time only, set in render.yaml for inbox-to-action-demo-web (never
+// for inbox-to-action-web) — lets that one deployment skip the GET
+// /api/info round-trip entirely and go straight to the demo UI, with no
+// window where a slow/blocked API call could show the wrong screen.
+const DEMO_MODE_BUILD_FLAG = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+// How long to keep retrying GET /api/info before giving up and showing the
+// explicit "didn't respond" screen — Render's free tier can take up to
+// ~60s to wake a cold instance, so this is deliberately longer than that.
+const WAKE_RETRY_INTERVAL_MS = 3000;
+const WAKE_MAX_WAIT_MS = 90000;
 
 // V2.7 (Design Decisions V2.7): Gmail is now scanned+extracted
 // automatically every ~2 minutes by app/scheduler.py — the manual
@@ -28,30 +41,70 @@ function nextToastId(): string {
 
 export default function ReviewPage() {
   // null = "not checked yet" (avoids a flash of the login screen while
-  // sessionStorage is read on mount); true/false once known.
-  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  // sessionStorage is read on mount); true/false once known. The demo
+  // build (NEXT_PUBLIC_DEMO_MODE, render.yaml) already knows both values
+  // at mount — no API call needed to find out.
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(DEMO_MODE_BUILD_FLAG ? true : null);
+  const [demoMode, setDemoMode] = useState(DEMO_MODE_BUILD_FLAG);
+  const [wakeStatus, setWakeStatus] = useState<"waking" | "timed_out">("waking");
+  const [wakeRetryToken, setWakeRetryToken] = useState(0);
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // /health needs no token. Drives both the "synthetic data" banner and
-  // the login gate below: DEMO_MODE's backend skips token checking
-  // entirely (app/auth.py), so the login screen would just be a pointless
-  // extra click for a public demo — skip it there too, straight to
-  // logged-in. Otherwise fall back to whatever's already in
-  // sessionStorage from a previous visit this tab.
+  // GET /api/info needs no token (app/main.py — same payload as /health,
+  // deliberately not on a "/health"-shaped path some browser ad/privacy
+  // blockers silently fail requests to). Drives both the "synthetic data"
+  // banner and the login gate below: DEMO_MODE's backend skips token
+  // checking entirely (app/auth.py), so the login screen would just be a
+  // pointless extra click for a public demo — skip it there too, straight
+  // to logged-in. Otherwise fall back to whatever's already in
+  // sessionStorage from a previous visit this tab. Retries every
+  // WAKE_RETRY_INTERVAL_MS for up to WAKE_MAX_WAIT_MS — a cold Render
+  // free-tier instance can take up to ~60s to answer at all — rather than
+  // falling back to the login screen on the first failed attempt.
   useEffect(() => {
-    fetch(`${API_URL}/health`)
-      .then((res) => res.json())
-      .then((data) => {
+    if (DEMO_MODE_BUILD_FLAG) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
+
+    async function attempt() {
+      try {
+        const res = await fetch(`${API_URL}/api/info`);
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
         const isDemo = Boolean(data.demo_mode);
         setDemoMode(isDemo);
         setLoggedIn(isDemo ? true : getToken() !== null);
-      })
-      .catch(() => setLoggedIn(getToken() !== null));
-  }, []);
+      } catch {
+        if (cancelled) return;
+        if (Date.now() - startedAt >= WAKE_MAX_WAIT_MS) {
+          setWakeStatus("timed_out");
+          return;
+        }
+        timeoutId = setTimeout(attempt, WAKE_RETRY_INTERVAL_MS);
+      }
+    }
+
+    attempt();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [wakeRetryToken]);
+
+  function retryWakeUp() {
+    // Set synchronously from the click handler, not inside the effect
+    // body — wakeStatus is already "waking" on first mount (its initial
+    // state), this only needs to reset it back from "timed_out" when the
+    // Retry button bumps wakeRetryToken and re-runs the effect above.
+    setWakeStatus("waking");
+    setWakeRetryToken((n) => n + 1);
+  }
 
   function handleAuthError(e: unknown): boolean {
     if (e instanceof AuthError) {
@@ -260,7 +313,10 @@ export default function ReviewPage() {
   });
 
   if (loggedIn === null) {
-    return null; // sessionStorage check in flight — avoids a login-screen flash on reload
+    // Either sessionStorage's check hasn't resolved yet, or (more likely
+    // on first load) GET /api/info is still waking a cold instance or
+    // being retried — see the effect above.
+    return <WakingUpScreen phase={wakeStatus} onRetry={retryWakeUp} />;
   }
 
   if (!loggedIn) {

@@ -1,0 +1,37 @@
+.main {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  text-align: center;
+}
+
+.message {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
