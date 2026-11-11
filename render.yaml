@@ -105,3 +105,9 @@ services:
         value: "20.11.1"
       - key: NEXT_PUBLIC_API_URL
         value: https://inbox-to-action-demo-api.onrender.com
+      # Build-time flag, this service only (never inbox-to-action-web). Lets
+      # web/app/page.tsx show the demo banner immediately, with no API call
+      # needed to detect demo mode — see app/main.py's GET /api/info for
+      # the fallback path the private service still relies on.
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: "true"
