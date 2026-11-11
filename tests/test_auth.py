@@ -70,3 +70,22 @@ class TestPublicRoutes:
     def test_debug_anthropic_check_route_is_gone(self, client, auth_headers):
         res = client.get("/debug/anthropic-check", headers=auth_headers)
         assert res.status_code == 404
+
+    def test_api_info_is_public(self, client):
+        # No Authorization header at all — the web app calls this before a
+        # visitor has any token to send (see web/lib/api.ts).
+        res = client.get("/api/info")
+        assert res.status_code == 200
+        assert res.json() == {"demo_mode": False}
+
+    def test_api_info_reports_demo_mode_true(self, monkeypatch):
+        # Reads app.main's own DEMO_MODE binding directly rather than going
+        # through the full app lifecycle with DEMO_MODE=true (which would
+        # trigger on_startup()'s demo-data seeding against the shared test
+        # db — see tests/test_demo_reset.py for the same concern). api_info()
+        # has no dependencies, so calling it directly is a faithful,
+        # side-effect-free check of what it returns in either mode.
+        monkeypatch.setattr("app.main.DEMO_MODE", True)
+        from app.main import api_info
+
+        assert api_info() == {"demo_mode": True}
