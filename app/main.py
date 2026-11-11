@@ -22,6 +22,7 @@ from app.config import DEMO_MODE
 from app.db import engine, init_db
 from app.routes_auth import router as auth_router
 from app.routes_candidates import router as candidates_router
+from app.routes_demo import router as demo_router
 from app.routes_events import router as events_router
 from app.routes_extract import router as extract_router
 from app.routes_scan import router as scan_router
@@ -55,11 +56,24 @@ app.include_router(extract_router, dependencies=[Depends(require_token)])
 app.include_router(candidates_router, dependencies=[Depends(require_token)])
 app.include_router(scheduling_router, dependencies=[Depends(require_token)])
 app.include_router(events_router)
+# No token dependency: DEMO_MODE itself is the gate (enforced inside the
+# route), since anonymous public demo visitors have no token to send —
+# same reasoning as /health and GET /events above.
+app.include_router(demo_router)
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
     init_db()
+    if not DEMO_MODE:
+        # Fail closed at boot, not two minutes later inside the scheduler's
+        # first silently-logged poll failure: checks the configured
+        # LLM_PROVIDER's key is actually present (phase1_extraction/extractor.py)
+        # without constructing a real SDK client or making a network call —
+        # skipped entirely in DEMO_MODE, which needs no key of any kind.
+        from phase1_extraction.extractor import validate_provider_config
+
+        validate_provider_config()
     if DEMO_MODE:
         # Public demo instance: seed the fixed synthetic inbox and run one
         # extraction pass immediately, so a visitor sees populated
@@ -72,9 +86,20 @@ async def on_startup() -> None:
         from app.demo_data import seed_demo_data
         from app.routes_extract import run_extract
 
-        with Session(engine) as session:
-            seed_demo_data(session)
-            await run_extract(session)
+        try:
+            with Session(engine) as session:
+                seed_demo_data(session)
+                await run_extract(session)
+        except Exception as e:  # noqa: BLE001 — see comment below
+            # get_demo_snapshot_result() (app/demo_snapshot.py) raises loudly
+            # on a missing entry rather than skip silently — correct for
+            # catching a drifted snapshot during development, but letting it
+            # propagate here would crash the whole process at boot (failing
+            # Render's health check) over one bad candidate instead of
+            # degrading to an empty-but-reachable demo. Logged loud, not
+            # silently swallowed — this is exactly the "demo must never
+            # break" case, not a license to ignore a real snapshot/data bug.
+            print(f"[startup] demo seed/extract failed, continuing with an empty demo: {e}")
     poll_scheduler.start()
 
 

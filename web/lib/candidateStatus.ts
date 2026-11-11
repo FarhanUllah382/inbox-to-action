@@ -25,7 +25,17 @@ export function isFlagged(candidate: Candidate): boolean {
 
 export function getStatusInfo(candidate: Candidate): StatusInfo {
   if (isFlagged(candidate)) {
-    return { key: "flagged", label: "Flagged for review", bgVar: "--status-flagged-bg", fgVar: "--status-flagged-fg" };
+    // TASK 3: name the specific reason instead of a generic "Flagged for
+    // review" — the two V1 safety checks (injection vs. sender-identity
+    // mismatch) look identical today, which hides what was actually
+    // caught. injection_suspected takes priority if both are ever true at
+    // once (isFlagged's own OR means at least one is always true here, so
+    // the sender-mismatch branch below is never reached with a blank
+    // reason).
+    const label = candidate.injection_suspected
+      ? "Flagged — possible prompt injection"
+      : "Flagged — sender identity doesn't match";
+    return { key: "flagged", label, bgVar: "--status-flagged-bg", fgVar: "--status-flagged-fg" };
   }
   if (candidate.status === "approved") {
     return { key: "approved", label: "Approved", bgVar: "--status-approved-bg", fgVar: "--status-approved-fg" };

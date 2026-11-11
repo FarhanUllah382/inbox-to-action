@@ -40,3 +40,10 @@ def create_fake_task_page(
 
 def list_fake_pages() -> list[dict]:
     return list(_pages.values())
+
+
+def reset() -> None:
+    """Clears all fake pages — called by app/demo_reset.py's periodic/manual demo reset."""
+    global _counter
+    _pages.clear()
+    _counter = 0

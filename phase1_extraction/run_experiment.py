@@ -11,6 +11,14 @@ from pathlib import Path
 # Add project root to path to allow imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# The per-email progress markers below are U+2713/U+2717 (✓/✗); Windows'
+# default console codepage (cp1252) can't encode them, which crashes this
+# script the moment stdout is redirected (e.g. piped to a log file) rather
+# than printed to an actual UTF-8-capable terminal. Force UTF-8 regardless
+# of the console's codepage — output-only, doesn't change what's computed.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from phase1_extraction.config import TEST_EMAILS_PATH, RESULTS_OUTPUT_PATH
 from phase1_extraction.extractor import extract_email, ExtractionError
 from phase1_extraction.evaluate import evaluate_extraction, print_metrics

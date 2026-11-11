@@ -6,6 +6,15 @@ anthropic==0.122.0
 httpx2==2.10.0
 python-dotenv==1.2.2
 
+# Alternate LLM_PROVIDER=gemini path (phase1_extraction/extractor.py) —
+# official Google SDK, used for its native response_schema structured
+# output.
+google-genai==2.17.0
+# Pinned explicitly since phase1_extraction/extractor.py imports it
+# directly (shared ExtractionResult schema, both providers) — previously
+# only a transitive dependency of fastapi/sqlmodel.
+pydantic==2.13.2
+
 # Phase 2: backend
 fastapi==0.141.1
 uvicorn[standard]==0.46.0

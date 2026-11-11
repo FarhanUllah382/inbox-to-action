@@ -8,7 +8,9 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import DashboardSummary from "./components/DashboardSummary";
 import CandidateList from "./components/CandidateList";
 import LoginScreen from "./components/LoginScreen";
+import ResetDemoButton from "./components/ResetDemoButton";
 import Toast, { type ToastItem } from "./components/Toast";
+import WhatYoureLookingAt from "./components/WhatYoureLookingAt";
 import styles from "./page.module.css";
 
 // V2.7 (Design Decisions V2.7): Gmail is now scanned+extracted
@@ -264,7 +266,12 @@ export default function ReviewPage() {
   if (!loggedIn) {
     return (
       <>
-        {demoMode && <div className={styles.demoBanner}>Demo mode — synthetic data, no real Gmail/Notion access</div>}
+        {demoMode && (
+          <>
+            <div className={styles.demoBanner}>Demo mode — synthetic data, no real Gmail/Notion access</div>
+            <WhatYoureLookingAt />
+          </>
+        )}
         <LoginScreen onSuccess={() => setLoggedIn(true)} />
       </>
     );
@@ -272,7 +279,12 @@ export default function ReviewPage() {
 
   return (
     <main className={styles.main}>
-      {demoMode && <div className={styles.demoBanner}>Demo mode — synthetic data, no real Gmail/Notion access</div>}
+      {demoMode && (
+        <>
+          <div className={styles.demoBanner}>Demo mode — synthetic data, no real Gmail/Notion access</div>
+          <WhatYoureLookingAt />
+        </>
+      )}
       <div className={styles.headerRow}>
         <h1 className={styles.title}>Inbox-to-Action</h1>
         <span className={styles.liveIndicator}>
@@ -297,6 +309,7 @@ export default function ReviewPage() {
         <button onClick={loadCandidates} disabled={loading}>
           Refresh
         </button>
+        {demoMode && <ResetDemoButton onReset={loadCandidates} />}
       </div>
 
       {(scanStatus || extractStatus) && (
